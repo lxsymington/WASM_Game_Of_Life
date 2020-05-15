@@ -1,0 +1,3 @@
+[submodule "www"]
+	path = www
+	url = git@github.com:lxsymington/WASM_Game_Of_Life_FE.git
