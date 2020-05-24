@@ -1,13 +1,17 @@
 extern crate fixedbitset;
 extern crate js_sys;
-extern crate web_sys;
 
+mod cell_buffer;
+mod graph;
+mod timer;
 mod utils;
 
+use cell_buffer::CellBuffer;
 use fixedbitset::FixedBitSet;
+use graph::Graph;
 use std::fmt;
+use timer::Timer;
 use wasm_bindgen::prelude::*;
-// use web_sys::console;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -18,22 +22,88 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 #[wasm_bindgen]
 #[derive(Default)]
 pub struct Universe {
-    alive_coords: Vec<f32>,
-    alive_count: u32,
-    cell_gap: u32,
-    cell_size: u32,
-    cells: FixedBitSet,
-    grid_line_coords: Vec<f32>,
+    cell_buffer: CellBuffer,
+    graph: Graph,
     height: u32,
     width: u32,
 }
 
 impl Universe {
+    /// Get the dead and alive values of the entire universe.
+    pub fn get_cells(&mut self) -> &FixedBitSet {
+        let (active, _) = self.cell_buffer.buffers();
+        active
+    }
+
+    /// Set cells to be alive in a universe by passing the row and column
+    /// of each cell as an array
+    pub fn set_cells(&mut self, cells: &[(u32, u32)]) {
+        let set_cell_indices: Vec<usize> = cells
+            .iter()
+            .map(|(row, col)| self.get_index(*row, *col))
+            .collect();
+
+        self.cell_buffer.set_cells(set_cell_indices);
+    }
+}
+
+#[wasm_bindgen]
+impl Universe {
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn set_width(&mut self, width: u32) {
+        self.width = width;
+        self.cell_buffer.update_size((width * self.height) as usize);
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn set_height(&mut self, height: u32) {
+        self.height = height;
+        self.cell_buffer.update_size((self.width * height) as usize);
+    }
+
+    pub fn new(
+        width: u32,
+        height: u32,
+        cell_width: f32,
+        cell_height: f32,
+        cell_gap: f32,
+    ) -> Universe {
+        utils::set_panic_hook();
+
+        let size = (width * height) as usize;
+        let cell_buffer = CellBuffer::new(size);
+        let graph = Graph::new(width, height, cell_width, cell_height, cell_gap);
+
+        Universe {
+            cell_buffer,
+            graph,
+            height,
+            width,
+        }
+    }
+
+    pub fn random_reset(&mut self) {
+        let (_, inactive) = self.cell_buffer.buffers_mut();
+
+        for idx in 0..inactive.len() {
+            inactive.set(idx, js_sys::Math::random() > 0.5);
+        }
+
+        self.cell_buffer.swap();
+    }
+
     fn get_index(&self, row: u32, column: u32) -> usize {
         (row * self.width + column) as usize
     }
 
     fn live_neighbour_count(&self, row: u32, column: u32) -> u8 {
+        let (active, _) = self.cell_buffer.buffers();
         let mut count = 0;
 
         let north = if row == 0 { self.height - 1 } else { row - 1 };
@@ -50,184 +120,47 @@ impl Universe {
         };
 
         let nw = self.get_index(north, west);
-        count += self.cells[nw] as u8;
+        count += active[nw] as u8;
 
         let n = self.get_index(north, column);
-        count += self.cells[n] as u8;
+        count += active[n] as u8;
 
         let ne = self.get_index(north, east);
-        count += self.cells[ne] as u8;
+        count += active[ne] as u8;
 
         let w = self.get_index(row, west);
-        count += self.cells[w] as u8;
+        count += active[w] as u8;
 
         let e = self.get_index(row, east);
-        count += self.cells[e] as u8;
+        count += active[e] as u8;
 
         let sw = self.get_index(south, west);
-        count += self.cells[sw] as u8;
+        count += active[sw] as u8;
 
         let s = self.get_index(south, column);
-        count += self.cells[s] as u8;
+        count += active[s] as u8;
 
         let se = self.get_index(south, east);
-        count += self.cells[se] as u8;
+        count += active[se] as u8;
 
         count
     }
 
-    fn update_alive_count(&mut self) {
-        self.alive_count = Universe::alive_cells_count(&self.cells);
-    }
+    pub fn tick(&mut self, iterations: usize) {
+        let _timer = Timer::new("Universe tick");
 
-    fn update_alive_coords(&mut self) {
-        self.alive_coords = Universe::alive_cells_coords(
-            &self.cells,
-            self.width,
-            self.height,
-            self.cell_size,
-            self.cell_gap,
-        );
-    }
-
-    fn update_grid_line_coords(&mut self) {
-        self.grid_line_coords = Universe::grid_lines(self.width, self.height);
-    }
-
-    fn alive_cells_count(cells: &FixedBitSet) -> u32 {
-        cells.count_ones(..) as u32
-    }
-
-    fn alive_cells_coords(
-        cells: &FixedBitSet,
-        width: u32,
-        height: u32,
-        cell_size: u32,
-        cell_gap: u32,
-    ) -> Vec<f32> {
-        cells
-            .ones()
-            .flat_map(|c| -> Vec<f32> {
-                let row = (c as f32 / width as f32).floor() as u32;
-                let col = c as u32 % width;
-                let total_width: f32 = (width * (cell_gap + cell_size) + cell_gap) as f32;
-                let total_height: f32 = (height * (cell_gap + cell_size) + cell_gap) as f32;
-                let x1: f32 =
-                    -1.0 + (col * 2 * (cell_gap + cell_size) + 2 * cell_gap) as f32 / total_width;
-                let x2: f32 = x1 + (2 * cell_size) as f32 / total_width;
-                let y1: f32 =
-                    1.0 - (row * 2 * (cell_gap + cell_size) + 2 * cell_gap) as f32 / total_height;
-                let y2: f32 = y1 - (2 * cell_size) as f32 / total_height;
-                vec![x1, y1, x2, y1, x1, y2, x1, y2, x2, y1, x2, y2]
-            })
-            .collect()
-    }
-
-    fn grid_lines(width: u32, height: u32) -> Vec<f32> {
-        let vert_lines: Vec<Vec<f32>> = (0..=width)
-            .map(|i| {
-                let x: f32 = -1.0 + 2.0 * i as f32 / width as f32;
-                vec![x, 1.0, x, -1.0]
-            })
-            .collect();
-
-        let hori_lines: Vec<Vec<f32>> = (0..=height)
-            .map(|i| {
-                let y = -1.0 + 2.0 * i as f32 / height as f32;
-                vec![1.0, y, -1.0, y]
-            })
-            .collect();
-
-        vert_lines
-            .into_iter()
-            .chain(hori_lines.into_iter())
-            .flatten()
-            .collect()
-    }
-
-    /// Get the dead and alive values of the entire universe.
-    pub fn get_cells(&self) -> &FixedBitSet {
-        &self.cells
-    }
-
-    /// Set cells to be alive in a universe by passing the row and column
-    /// of each cell as an array
-    pub fn set_cells(&mut self, cells: &[(u32, u32)]) {
-        for (row, col) in cells.iter().cloned() {
-            let idx = self.get_index(row, col);
-
-            self.cells.set(idx, true);
-        }
-    }
-}
-
-#[wasm_bindgen]
-impl Universe {
-    pub fn width(&self) -> u32 {
-        self.width
-    }
-
-    pub fn set_width(&mut self, width: u32) {
-        self.width = width;
-        self.cells = FixedBitSet::with_capacity((width * self.height) as usize);
-    }
-
-    pub fn height(&self) -> u32 {
-        self.height
-    }
-
-    pub fn set_height(&mut self, height: u32) {
-        self.height = height;
-        self.cells = FixedBitSet::with_capacity((self.width * height) as usize);
-    }
-
-    pub fn cells(&self) -> *const u32 {
-        self.cells.as_slice().as_ptr()
-    }
-
-    pub fn alive_count(&mut self) -> u32 {
-        self.update_alive_count();
-
-        self.alive_count
-    }
-
-    pub fn cell_coords(&mut self) -> *const f32 {
-        self.update_alive_coords();
-
-        self.alive_coords.as_ptr()
-    }
-
-    pub fn cell_coords_count(&self) -> u32 {
-        self.alive_coords.len() as u32
-    }
-
-    pub fn grid_line_coords(&mut self) -> *const f32 {
-        self.update_grid_line_coords();
-
-        self.grid_line_coords.as_ptr()
-    }
-
-    pub fn grid_line_coords_count(&self) -> u32 {
-        self.grid_line_coords.len() as u32
-    }
-
-    pub fn tick(&mut self) {
-        // let _timer = Timer::new("Universe tick");
-
-        let mut next = {
-            // let _timer = Timer::new("allocate next cells");
-            self.cells.clone()
-        };
-
-        {
-            // let _timer = Timer::new("new generation");
+        for _i in 0..iterations {
             for row in 0..self.height {
                 for col in 0..self.width {
                     let idx = self.get_index(row, col);
-                    let cell = self.cells[idx];
+                    let cell = {
+                        let (active, _) = { self.cell_buffer.buffers() };
+                        active[idx]
+                    };
                     let live_neighbours = self.live_neighbour_count(row, col);
+                    let (_, inactive) = self.cell_buffer.buffers_mut();
 
-                    next.set(
+                    inactive.set(
                         idx,
                         match (cell, live_neighbours) {
                             // Rule 1: Any live cell with fewer than two live neighbours
@@ -250,125 +183,119 @@ impl Universe {
             }
         }
 
-        // let _timer = Timer::new("free old cells");
-        self.cells = next;
+        self.cell_buffer.swap();
     }
 
-    pub fn new(width: u32, height: u32, cell_size: u32, cell_gap: u32) -> Universe {
-        utils::set_panic_hook();
+    pub fn toggle_cell(&mut self, idx: usize) {
+        self.cell_buffer.toggle_cell(idx);
+    }
 
-        let size = (width * height) as usize;
-        let mut cells = FixedBitSet::with_capacity(size);
+    fn insert_pattern(&mut self, row: u32, col: u32, pattern: Vec<(i32, i32)>) {
+        let pattern_indices = pattern
+            .iter()
+            .map(|(row_delta, col_delta)| {
+                self.get_index(
+                    (row as i32 + *row_delta) as u32,
+                    (col as i32 + *col_delta) as u32,
+                )
+            })
+            .collect();
 
-        for i in 0..size {
-            cells.set(i, i % 2 == 0 || i % 7 == 0)
-        }
+        self.cell_buffer.set_cells(pattern_indices);
+    }
 
-        let alive_count = Universe::alive_cells_count(&cells);
-        let alive_coords = Universe::alive_cells_coords(&cells, width, height, cell_size, cell_gap);
-        let grid_line_coords = Universe::grid_lines(width, height);
+    pub fn insert_glider(&mut self, row: u32, col: u32) {
+        let glider: Vec<(i32, i32)> = vec![(-1, -1), (0, 0), (0, 1), (1, -1), (1, 0)];
 
-        Universe {
-            alive_coords,
-            alive_count,
-            cell_gap,
-            cell_size,
-            cells,
-            grid_line_coords,
-            height,
-            width,
-        }
+        self.insert_pattern(row, col, glider);
+    }
+
+    pub fn insert_pulsar(&mut self, row: u32, col: u32) {
+        let pulsar = vec![
+            (-6, -4),
+            (-6, -3),
+            (-6, -2),
+            (-6, 2),
+            (-6, 3),
+            (-6, 4),
+            (-4, -6),
+            (-4, -1),
+            (-4, 1),
+            (-4, 6),
+            (-3, -6),
+            (-3, -1),
+            (-3, 1),
+            (-3, 6),
+            (-2, -6),
+            (-2, -1),
+            (-2, 1),
+            (-2, 6),
+            (-1, -4),
+            (-1, -3),
+            (-1, -2),
+            (-1, 2),
+            (-1, 3),
+            (-1, 4),
+            (1, -4),
+            (1, -3),
+            (1, -2),
+            (1, 2),
+            (1, 3),
+            (1, 4),
+            (2, -6),
+            (2, -1),
+            (2, 1),
+            (2, 6),
+            (3, -6),
+            (3, -1),
+            (3, 1),
+            (3, 6),
+            (4, -6),
+            (4, -1),
+            (4, 1),
+            (4, 6),
+            (6, -4),
+            (6, -3),
+            (6, -2),
+            (6, 2),
+            (6, 3),
+            (6, 4),
+        ];
+
+        self.insert_pattern(row, col, pulsar);
+    }
+
+    pub fn cell_coords(&mut self) -> *const f32 {
+        let _timer = Timer::new("Cell Coords");
+        let (active, _) = self.cell_buffer.buffers();
+
+        self.graph.cell_coords(active, self.width, self.height)
+    }
+
+    pub fn cell_coords_count(&self) -> u32 {
+        let _timer = Timer::new("Cell Coords Count");
+        self.graph.cell_coords_count()
+    }
+
+    pub fn grid_line_coords(&mut self) -> *const f32 {
+        let _timer = Timer::new("Grid Line Coords");
+        self.graph.grid_line_coords(self.width, self.height)
+    }
+
+    pub fn grid_line_coords_count(&self) -> u32 {
+        let _timer = Timer::new("Grid Line Coords Count");
+        self.graph.grid_line_coords_count()
     }
 
     pub fn render(&self) -> String {
         self.to_string()
     }
-
-    pub fn toggle_cell(&mut self, row: u32, column: u32) {
-        let idx = self.get_index(row, column);
-        self.cells.set(idx, !self.cells[idx]);
-    }
-
-    pub fn insert_glider(&mut self, row: u32, column: u32) {
-        self.set_cells(&[
-            (row - 1, column - 1),
-            (row, column),
-            (row, column + 1),
-            (row + 1, column - 1),
-            (row + 1, column),
-        ]);
-    }
-
-    pub fn insert_pulsar(&mut self, row: u32, column: u32) {
-        self.set_cells(&[
-            (row - 6, column - 4),
-            (row - 6, column - 3),
-            (row - 6, column - 2),
-            (row - 6, column + 2),
-            (row - 6, column + 3),
-            (row - 6, column + 4),
-            (row - 4, column - 6),
-            (row - 4, column - 1),
-            (row - 4, column + 1),
-            (row - 4, column + 6),
-            (row - 3, column - 6),
-            (row - 3, column - 1),
-            (row - 3, column + 1),
-            (row - 3, column + 6),
-            (row - 2, column - 6),
-            (row - 2, column - 1),
-            (row - 2, column + 1),
-            (row - 2, column + 6),
-            (row - 1, column - 4),
-            (row - 1, column - 3),
-            (row - 1, column - 2),
-            (row - 1, column + 2),
-            (row - 1, column + 3),
-            (row - 1, column + 4),
-            (row + 1, column - 4),
-            (row + 1, column - 3),
-            (row + 1, column - 2),
-            (row + 1, column + 2),
-            (row + 1, column + 3),
-            (row + 1, column + 4),
-            (row + 2, column - 6),
-            (row + 2, column - 1),
-            (row + 2, column + 1),
-            (row + 2, column + 6),
-            (row + 3, column - 6),
-            (row + 3, column - 1),
-            (row + 3, column + 1),
-            (row + 3, column + 6),
-            (row + 4, column - 6),
-            (row + 4, column - 1),
-            (row + 4, column + 1),
-            (row + 4, column + 6),
-            (row + 6, column - 4),
-            (row + 6, column - 3),
-            (row + 6, column - 2),
-            (row + 6, column + 2),
-            (row + 6, column + 3),
-            (row + 6, column + 4),
-        ]);
-    }
-
-    pub fn random_reset(&mut self) {
-        let mut next = self.cells.clone();
-
-        for row in 0..self.height {
-            for col in 0..self.width {
-                let idx = self.get_index(row, col);
-                next.set(idx, js_sys::Math::random() > 0.5);
-            }
-        }
-
-        self.cells = next;
-    }
 }
 
 impl fmt::Display for Universe {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for line in self.cells.as_slice().chunks(self.width as usize) {
+        let (active, _) = self.cell_buffer.buffers();
+        for line in active.as_slice().chunks(self.width as usize) {
             for &cell in line {
                 let symbol = if cell == 0 { '◻' } else { '◼' };
                 writeln!(f, "{}", symbol)?;
@@ -378,20 +305,3 @@ impl fmt::Display for Universe {
         Ok(())
     }
 }
-
-// pub struct Timer<'a> {
-//     name: &'a str,
-// }
-
-// impl<'a> Timer<'a> {
-//     pub fn new(name: &'a str) -> Timer<'a> {
-//         console::time_with_label(name);
-//         Timer { name }
-//     }
-// }
-
-// impl<'a> Drop for Timer<'a> {
-//     fn drop(&mut self) {
-//         console::time_end_with_label(self.name);
-//     }
-// }
