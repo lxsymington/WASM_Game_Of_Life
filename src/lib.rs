@@ -67,18 +67,12 @@ impl Universe {
         self.cell_buffer.update_size((self.width * height) as usize);
     }
 
-    pub fn new(
-        width: u32,
-        height: u32,
-        cell_width: f32,
-        cell_height: f32,
-        cell_gap: f32,
-    ) -> Universe {
+    pub fn new(width: u32, height: u32, cell_size: f32, cell_gap: f32) -> Universe {
         utils::set_panic_hook();
 
         let size = (width * height) as usize;
         let cell_buffer = CellBuffer::new(size);
-        let graph = Graph::new(width, height, cell_width, cell_height, cell_gap);
+        let graph = Graph::new(width, height, cell_size, cell_gap);
 
         Universe {
             cell_buffer,
@@ -86,6 +80,13 @@ impl Universe {
             height,
             width,
         }
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32, cell_size: f32, cell_gap: f32) {
+        self.width = width;
+        self.height = height;
+        self.cell_buffer.update_size((width * height) as usize);
+        self.graph.update_size(width, height, cell_size, cell_gap);
     }
 
     pub fn random_reset(&mut self) {
@@ -154,7 +155,7 @@ impl Universe {
                 for col in 0..self.width {
                     let idx = self.get_index(row, col);
                     let cell = {
-                        let (active, _) = { self.cell_buffer.buffers() };
+                        let (active, _) = self.cell_buffer.buffers();
                         active[idx]
                     };
                     let live_neighbours = self.live_neighbour_count(row, col);
@@ -186,7 +187,8 @@ impl Universe {
         self.cell_buffer.swap();
     }
 
-    pub fn toggle_cell(&mut self, idx: usize) {
+    pub fn toggle_cell(&mut self, row: u32, col: u32) {
+        let idx = self.get_index(row, col);
         self.cell_buffer.toggle_cell(idx);
     }
 
@@ -195,8 +197,8 @@ impl Universe {
             .iter()
             .map(|(row_delta, col_delta)| {
                 self.get_index(
-                    (row as i32 + *row_delta) as u32,
-                    (col as i32 + *col_delta) as u32,
+                    (row as i32 + *row_delta).rem_euclid(self.height as i32) as u32,
+                    (col as i32 + *col_delta).rem_euclid(self.width as i32) as u32,
                 )
             })
             .collect();

@@ -4,7 +4,7 @@ use fixedbitset::FixedBitSet;
 
 #[derive(Default)]
 pub struct Graph {
-    cell_dimensions: (f32, f32, f32),
+    cell_dimensions: (f32, f32),
     even_line_buffer_active: bool,
     even_rect_buffer_active: bool,
     line_buffer_0: Vec<f32>,
@@ -14,18 +14,51 @@ pub struct Graph {
 }
 
 impl Graph {
-    pub fn new(width: u32, height: u32, cell_width: f32, cell_height: f32, cell_gap: f32) -> Graph {
-        let line_capacity = ((width + height + 2) * 2) as usize;
-        let rect_capacity = (width * height * 6) as usize;
+    pub fn new(width: u32, height: u32, cell_size: f32, cell_gap: f32) -> Graph {
+        let min_line_capacity = ((width + height + 2) * 2) as usize;
+        let initial_rect_capacity = (width * height * 6) as usize;
 
         Graph {
-            cell_dimensions: (cell_width, cell_height, cell_gap),
+            cell_dimensions: (cell_size, cell_gap),
             even_line_buffer_active: true,
             even_rect_buffer_active: true,
-            line_buffer_0: Vec::with_capacity(line_capacity),
-            line_buffer_1: Vec::with_capacity(line_capacity),
-            rect_buffer_0: Vec::with_capacity(rect_capacity),
-            rect_buffer_1: Vec::with_capacity(rect_capacity),
+            line_buffer_0: Vec::with_capacity(min_line_capacity),
+            line_buffer_1: Vec::with_capacity(min_line_capacity),
+            rect_buffer_0: Vec::with_capacity(initial_rect_capacity),
+            rect_buffer_1: Vec::with_capacity(initial_rect_capacity),
+        }
+    }
+
+    pub fn update_size(&mut self, width: u32, height: u32, cell_size: f32, cell_gap: f32) {
+        let min_line_capacity = ((width + height + 2) * 2) as usize;
+        let rect_capacity = (width * height * 6) as usize;
+
+        self.cell_dimensions = (cell_size, cell_gap);
+        self.even_line_buffer_active = true;
+        self.even_rect_buffer_active = true;
+        let current_line_capacity = self.line_buffer_0.capacity();
+        if min_line_capacity > current_line_capacity {
+            self.line_buffer_0
+                .reserve(min_line_capacity - current_line_capacity);
+            self.line_buffer_1
+                .reserve(min_line_capacity - current_line_capacity);
+            self.line_buffer_0.resize(min_line_capacity, 0.0);
+            self.line_buffer_1.resize(min_line_capacity, 0.0);
+        } else {
+            self.line_buffer_0.resize(min_line_capacity, 0.0);
+            self.line_buffer_1.resize(min_line_capacity, 0.0);
+            self.line_buffer_0.shrink_to_fit();
+            self.line_buffer_1.shrink_to_fit();
+        }
+
+        let current_rect_capacity = self.rect_buffer_0.capacity();
+        if rect_capacity > current_rect_capacity {
+            self.rect_buffer_0
+                .reserve(rect_capacity - current_rect_capacity);
+            self.rect_buffer_1
+                .reserve(rect_capacity - current_rect_capacity);
+            self.rect_buffer_0.resize(rect_capacity, 0.0);
+            self.rect_buffer_1.resize(rect_capacity, 0.0);
         }
     }
 
@@ -119,21 +152,22 @@ impl Graph {
     }
 
     fn update_cell_coords(&mut self, cells: &FixedBitSet, width: u32, height: u32) {
-        let (cell_width, cell_height, gap) = self.cell_dimensions;
-        let get_gl_coord = |i: u32, size: f32| (i as f32 * (gap + size) + gap);
+        let (cell_size, gap) = self.cell_dimensions;
         let (_, inactive) = self.rect_buffer_mut();
+        let line_x_size = gap / (2.0 * cell_size * width as f32);
+        let line_y_size = gap / (2.0 * cell_size * height as f32);
+        let col_size = 1.0 / width as f32;
+        let row_size = 1.0 / height as f32;
 
         inactive.clear();
 
         for c in cells.ones() {
-            let row = (c as f32 / width as f32).floor() as u32;
-            let col = c as u32 % width;
-            let total_width: f32 = get_gl_coord(width, cell_width);
-            let total_height: f32 = get_gl_coord(height, cell_height);
-            let x1: f32 = -1.0 + (2.0 * get_gl_coord(col, cell_width)) / total_width;
-            let x2: f32 = x1 + (2.0 * cell_width) / total_width;
-            let y1: f32 = 1.0 - (2.0 * get_gl_coord(row, cell_height)) / total_height;
-            let y2: f32 = y1 - (2.0 * cell_height) / total_height;
+            let row = (c as f32 / width as f32).floor() as f32;
+            let col = c as f32 - row * width as f32;
+            let x1 = -1.0 + 2.0 * col * col_size + line_x_size;
+            let x2 = x1 + 2.0 * col_size - line_x_size;
+            let y1 = 1.0 - 2.0 * row * row_size - line_y_size;
+            let y2 = y1 - 2.0 * row_size + line_y_size;
             let mut rect = vec![x1, y1, x2, y1, x1, y2, x1, y2, x2, y1, x2, y2];
             inactive.append(&mut rect);
         }

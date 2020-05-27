@@ -46,8 +46,13 @@ impl CellBuffer {
     }
 
     pub fn update_size(&mut self, size: usize) {
+        self.even_buffer_active = true;
         self.buffer_0 = FixedBitSet::with_capacity(size);
         self.buffer_1 = FixedBitSet::with_capacity(size);
+
+        for i in 0..size {
+            self.buffer_0.set(i, i % 2 == 0 || i % 7 == 0)
+        }
     }
 
     pub fn set_cells(&mut self, set_cell_indices: Vec<usize>) {
