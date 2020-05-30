@@ -1,69 +1,31 @@
-<div align="center">
+# WASM Game Of Life
 
-  <h1><code>wasm-pack-template</code></h1>
+## What this is
 
-  <strong>A template for kick starting a Rust and WebAssembly project using <a href="https://github.com/rustwasm/wasm-pack">wasm-pack</a>.</strong>
+This is the code I have written as a result of following the exercises in the Rust WASM book which can be found [here](https://rustwasm.github.io/docs/book/). As the purpose of this is learning how to use Rust and WASM to create a _browser consumable_ module, this has been the focus and the remainder has been made to _just about function_!
 
-  <p>
-    <a href="https://travis-ci.org/rustwasm/wasm-pack-template"><img src="https://img.shields.io/travis/rustwasm/wasm-pack-template.svg?style=flat-square" alt="Build Status" /></a>
-  </p>
+## Usage / Install
 
-  <h3>
-    <a href="https://rustwasm.github.io/docs/wasm-pack/tutorials/npm-browser-packages/index.html">Tutorial</a>
-    <span> | </span>
-    <a href="https://discordapp.com/channels/442252698964721669/443151097398296587">Chat</a>
-  </h3>
+### Prerequisites
 
-  <sub>Built with 🦀🕸 by <a href="https://rustwasm.github.io/">The Rust and WebAssembly Working Group</a></sub>
-</div>
+In order to run this project you will need to have installed:
 
-## About
+- Rust
+  - The [recommended way](https://www.rust-lang.org/tools/install) to do this is via rustup.
+  - If you install this on WSL Rust expects a linker to be present on the system. WSL installations do not seem to always have one. On Ubuntu this can be resolved by installing `build-essential` with apt.
+- WASMpack
+  - The [WASMpack website has installation instructions](https://rustwasm.github.io/wasm-pack/).
+- Node
+  - There are various ways of installing node, [here](https://nodejs.org/en/download/package-manager/) are some of the package managers that offer it .
+- npm / yarn
+  - npm comes with Node. If you want to use yarn instructions can be found [here](https://classic.yarnpkg.com/en/docs/install).
 
-[**📚 Read this template tutorial! 📚**][template-docs]
+### Setup
 
-This template is designed for compiling Rust libraries into WebAssembly and
-publishing the resulting package to NPM.
+Once the prerequisites have been fulfilled. Clone this repository with the _`--recurse-submodules` flag_. This repository will produce a local node module. The submodule actually uses it!
 
-Be sure to check out [other `wasm-pack` tutorials online][tutorials] for other
-templates and usages of `wasm-pack`.
+In the root of _this_ repository run `wasm-pack build` this will build the `wasm-game-of-life` module that the front-end will use.
 
-[tutorials]: https://rustwasm.github.io/docs/wasm-pack/tutorials/index.html
-[template-docs]: https://rustwasm.github.io/docs/wasm-pack/tutorials/npm-browser-packages/index.html
+Then navigate to the root of the submodule (`./www`) and run `npm i`.
 
-## 🚴 Usage
-
-### 🐑 Use `cargo generate` to Clone this Template
-
-[Learn more about `cargo generate` here.](https://github.com/ashleygwilliams/cargo-generate)
-
-```
-cargo generate --git https://github.com/rustwasm/wasm-pack-template.git --name my-project
-cd my-project
-```
-
-### 🛠️ Build with `wasm-pack build`
-
-```
-wasm-pack build
-```
-
-### 🔬 Test in Headless Browsers with `wasm-pack test`
-
-```
-wasm-pack test --headless --firefox
-```
-
-### 🎁 Publish to NPM with `wasm-pack publish`
-
-```
-wasm-pack publish
-```
-
-## 🔋 Batteries Included
-
-* [`wasm-bindgen`](https://github.com/rustwasm/wasm-bindgen) for communicating
-  between WebAssembly and JavaScript.
-* [`console_error_panic_hook`](https://github.com/rustwasm/console_error_panic_hook)
-  for logging panic messages to the developer console.
-* [`wee_alloc`](https://github.com/rustwasm/wee_alloc), an allocator optimized
-  for small code size.
+Finally run `npm run start` this should start a dev server running on `localhost:8080`.
