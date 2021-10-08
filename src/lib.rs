@@ -10,11 +10,12 @@ use cell_buffer::CellBuffer;
 use fixedbitset::FixedBitSet;
 use graph::Graph;
 use std::fmt;
-use timer::Timer;
 use wasm_bindgen::prelude::*;
 
-// When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
-// allocator.
+/*
+When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
+allocator.
+*/
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
@@ -148,8 +149,6 @@ impl Universe {
     }
 
     pub fn tick(&mut self, iterations: usize) {
-        let _timer = Timer::new("Universe tick");
-
         for _i in 0..iterations {
             for row in 0..self.height {
                 for col in 0..self.width {
@@ -268,24 +267,20 @@ impl Universe {
     }
 
     pub fn cell_coords(&mut self) -> *const f32 {
-        let _timer = Timer::new("Cell Coords");
         let (active, _) = self.cell_buffer.buffers();
 
         self.graph.cell_coords(active, self.width, self.height)
     }
 
     pub fn cell_coords_count(&self) -> u32 {
-        let _timer = Timer::new("Cell Coords Count");
         self.graph.cell_coords_count()
     }
 
     pub fn grid_line_coords(&mut self) -> *const f32 {
-        let _timer = Timer::new("Grid Line Coords");
         self.graph.grid_line_coords(self.width, self.height)
     }
 
     pub fn grid_line_coords_count(&self) -> u32 {
-        let _timer = Timer::new("Grid Line Coords Count");
         self.graph.grid_line_coords_count()
     }
 
